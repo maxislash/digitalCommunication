@@ -168,16 +168,16 @@ Yk=filter(b,a,signalAfterDeconstructionQ);
 
 %----------------------------- QAM demapper -------------------------------
 
-receivedSignal = Yi + j*Yk;
-for i = 1:length(receivedSignal)
-  [mindiff minIndex] = min(receivedSignal(i) - mappingTable);
-  symbolIndex = minIndex - 1;
-  bitString = dec2bin(symbolIndex, 4);
-end
-
-  receivedBits((i-1)*4 + 1) = str2double(bitString(1));
-  receivedBits((i-1)*4 + 2) = str2double(bitString(2));
-  receivedBits((i-1)*4 + 3) = str2double(bitString(3));
-  receivedBits((i-1)*4 + 4) = str2double(bitString(4));
-receivedBits = zeros(1, numberOfBits / 4);
+%receivedSignal = Yi + j*Yk;
+%for i = 1:length(receivedSignal)
+%  [mindiff minIndex] = min(receivedSignal(i) - mappingTable);
+%  symbolIndex = minIndex - 1;
+%  bitString = dec2bin(symbolIndex, 4);
+%end
+%
+%  receivedBits((i-1)*4 + 1) = str2double(bitString(1));
+%  receivedBits((i-1)*4 + 2) = str2double(bitString(2));
+%  receivedBits((i-1)*4 + 3) = str2double(bitString(3));
+%  receivedBits((i-1)*4 + 4) = str2double(bitString(4));
+%receivedBits = zeros(1, numberOfBits / 4);
 
