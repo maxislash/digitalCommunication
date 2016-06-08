@@ -32,9 +32,11 @@ if mod(n, k) ~= 0
     error('numberOfBits must be a multiple of log2(M).');
 end
 
+numSamplesPerSymbol = 1;    % Oversampling factor
+
 %----------------Creation of the bitstream ---------
 
-dataIn = randi(2,n,1) - 1;  % Generate vector of binary data
+dataIn = randi(2,n,1) - 1  % Generate vector of binary data
 
 %stem(dataIn,"filled");
 %title('Random Bits');
@@ -116,68 +118,81 @@ for i = 1:k:length(dataIn)
     elseif M == 64
       symbolIndex = 2^5 * symbolBits(1) + 2^4 * symbolBits(2) + 2^3 * symbolBits(3) + 2^2 * symbolBits(4) +  2^1 * symbolBits(5) + 2^0 * symbolBits(6);
     endif
-
+    
      % Mapping
     mappedSymbols((i - 1)/k + 1) = mappingTable( symbolIndex + 1);
+    
 endfor
 
-%------------------------------Construction and plot of the signal-----------
-
-signal = mappedSymbols;
-
-t = 0:1/k:length(dataIn)/(k*k)-1/k;
-modulation = real(signal).*cos(w.*t) + imag(signal).*sin(w.*t);
-
-%--------------------------------Channel with noise addition----------------
-
-EbNo = 10;
-numSamplesPerSymbol = 1;    % Oversampling factor
-snr = EbNo + 10*log10(k) - 10*log10(numSamplesPerSymbol);
-
-signalAfter = awgn(signal,snr,'measured');
-
-%----------------------------- Deconstruction of the signal and plot of the received signal--------------
-
-sPlotFig = scatterplot(signal,1,0,'k*');
-hold on
-scatterplot(signalAfter,1,0,'g.', sPlotFig);
-grid;
-xlabel('I');
-ylabel('Q');
-if M == 4
-  axis([-2 2 -2 2]);
-elseif M == 16
-  axis([-4 4 -4 4]);
-elseif M == 64
-  axis([-8 8 -8 8]);
-endif
-title('Signal before and after sending');
-legend('Before Sending','After Sending');
-
-phi = 0;
-
-signalAfterDeconstructionI = signalAfter.*cos(w*t + phi);
-signalAfterDeconstructionQ = signalAfter.*sin(w*t + phi);
-
-%-------------------------------FIR-------------------------------------------
-
-% Low pass filtering with a Butterworth filter
-[b,a]=butter(2,0.4);
-Yi=filter(b,a,signalAfterDeconstructionI);
-Yk=filter(b,a,signalAfterDeconstructionQ);
+%%-----------------------------Pulse shaping ----------------------
+%
+%
+%
+%%------------------------------Construction of the signal-----------
+%
+%signal = mappedSymbols;
+%
+%t = 0:1/k:length(dataIn)/(k*k)-1/k;
+%modulation = real(signal).*cos(w.*t) + imag(signal).*sin(w.*t);
+%
+%%--------------------------------Channel with noise addition----------------
+%
+%EbNo = 10;
+%snr = EbNo + 10*log10(k) - 10*log10(numSamplesPerSymbol);
+%
+%signalAfter = awgn(signal,snr,'measured');
+%
+%%----------------------------- Deconstruction of the signal--------------
+%
+%phi = 0;
+%
+%signalAfterDeconstructionI = signalAfter.*cos(w*t + phi);
+%signalAfterDeconstructionQ = signalAfter.*sin(w*t + phi);
+%
+%%-------------------------------FIR-------------------------------------------
+%
+%% Low pass filtering with a Butterworth filter
+%[b,a]=butter(2,0.3);
+%Yi=filter(b,a,signalAfterDeconstructionI);
+%Yk=filter(b,a,signalAfterDeconstructionQ);
 
 %----------------------------- QAM demapper -------------------------------
 
-%receivedSignal = Yi + j*Yk;
-%for i = 1:length(receivedSignal)
-%  [mindiff minIndex] = min(receivedSignal(i) - mappingTable);
-%  symbolIndex = minIndex - 1;
-%  bitString = dec2bin(symbolIndex, 4);
-%end
-%
-%  receivedBits((i-1)*4 + 1) = str2double(bitString(1));
-%  receivedBits((i-1)*4 + 2) = str2double(bitString(2));
-%  receivedBits((i-1)*4 + 3) = str2double(bitString(3));
-%  receivedBits((i-1)*4 + 4) = str2double(bitString(4));
-%receivedBits = zeros(1, numberOfBits / 4);
+receivedSymbols = mappedSymbols;
+%sPlotFig = scatterplot(signal,1,0,'k*');
+%hold on
+%scatterplot(signalAfter,1,0,'g.', sPlotFig);
+%hold on
+%scatterplot(receivedSymbols,1,0,'r+', sPlotFig);
+%grid;
+%xlabel('I');
+%ylabel('Q');
+%if M == 4
+%  axis([-2 2 -2 2]);
+%elseif M == 16
+%  axis([-4 4 -4 4]);
+%elseif M == 64
+%  axis([-8 8 -8 8]);
+%endif
+%title('Signal before sending, after sending and after filtering');
+%legend('Before Sending','After Sending', 'After Filtering');
+
+
+for i = 1:length(receivedSymbols)
+  [mindiff minIndex] = min(receivedSymbols(i) - mappingTable);
+  symbolIndexAfter(i) = minIndex - 1;
+endfor
+
+for i=1:length(symbolIndexAfter)
+  bitString = dec2bin(symbolIndexAfter, k); 
+endfor
+bitString
+bitString(1)
+bitString(2)
+for i=1:length(bitString)
+    pack =bitString(i);
+%    for j=1:k
+%      dataOut((i*k)-k+j ) = str2double(pack(j));
+%    endfor
+  endfor 
 
