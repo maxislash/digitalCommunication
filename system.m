@@ -90,18 +90,18 @@ endif
 
 % ---- ---- Simulation Paramters ---- ---- %
 k=0;
-end_k = n/bitsBySymbol;
+end_k = numberOfSymbols;
 Ts = 1e-3;
 dt = 1e-6;
 end_t = 1e-3;
 t = 0:dt:Ts-dt;
 lt = length(t);
-window_size = n;
+window_size = 5;
 PLOT_TX = 1;
 PLOT_RX = 1;
 
 % ---- ---- Transceiver Paramters ---- ---- %
-fc = 10e3;
+fc = 1e3;
 dataIn = randi(2,n,1) - 1; % Generate vector of binary data
 dataOut = zeros(n,1);
   % ---- ---- Bad Paramters ---- ---- %
@@ -113,11 +113,15 @@ dataOut = zeros(n,1);
   SNR = 0;
   % ---- ---- Good Paramters ---- ---- %
   delay = 0.0;
-  phase_tx = 0;
   phase_rx = 0;
+  phase_tx = 0;
   fc_tx = fc;
   fc_rx = fc;
   SNR = 100;
+  
+  % first order pll
+  alpha = 0.01;
+
   % ---- ---- Pulse shaping ---- ---- %
   pulse_shaping = sin(2*pi*(0:dt:Ts-dt)/(Ts-dt));
   pulse_shaping = ones(1,lt);
@@ -160,7 +164,7 @@ while(k < end_k)
   elseif M == 64
     symbolIndex = 2^5 * symbolBits(1) + 2^4 * symbolBits(2) + 2^3 * symbolBits(3) + 2^2 * symbolBits(4) +  2^1 * symbolBits(5) + 2^0 * symbolBits(6);
   endif
-
+  symbolIndex;
    % Mapping
   symbol = mappingTable(symbolIndex + 1);
   xi_k = real(symbol);
@@ -177,8 +181,6 @@ while(k < end_k)
   % ---- ---- END Transmitter ---- ---- %
 
 
-
-
   % ---- ---- Receiver ---- ---- %;
 #   y_t = awgn(x_t, SNR);
   delay_idx = mod(floor(delay/dt),lt)+1;
@@ -188,32 +190,45 @@ while(k < end_k)
   yq_t = y_t .* sin(2*pi*fc_rx*t+phase_rx);
 
   % TODO The LBP filter is missing
-#   lbp_length = 4;
-#   lbp_filter = [ones(1,lbp_length) zeros(1,lt-lbp_length)];
-#   lbp_filter /= sum(lbp_filter);
-#   yi_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yi_non_lbp_t])(lt+1:2*lt);
-#   yq_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yq_non_lbp_t])(lt+1:2*lt);
-#   xi_aux_t = yi_non_lbp_t;
-#   xq_aux_t = yq_non_lbp_t;
+%   lbp_length = 4;
+%   lbp_filter = [ones(1,lbp_length) zeros(1,lt-lbp_length)];
+%   lbp_filter /= sum(lbp_filter);
+%   yi_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yi_non_lbp_t])(lt+1:2*lt);
+%   yq_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yq_non_lbp_t])(lt+1:2*lt);
+%   xi_aux_t = yi_non_lbp_t;
+%   xq_aux_t = yq_non_lbp_t;
+ 
+  
   aux = yi_t + j*yq_t;
   aux = fft(aux) .* [1 1 zeros(1,lt-2)];
   aux = ifft(aux);
-  yi_filter_t = real(aux);
-  yq_filter_t = imag(aux);
+  yi_filter_t = 2*real(aux);
+  yq_filter_t = 2*imag(aux);
   yi_k = yi_filter_t(1);
   yq_k = yq_filter_t(1);
   
+%  b = fir1(100,0.001);   
+%  yi_filter_t = 2*filter(b,1,yi_t);
+%  yq_filter_t = 2*filter(b,1,yq_t);
+%  yi_k = yi_filter_t(1)
+%  yq_k = yq_filter_t(1);
+  
   receivedSymbols = yi_k + j*yq_k;
+  
+%  phase_diff = angle(conj(receivedSymbols)*aux) ;    
+%  phase_rx += alpha*phase_diff;
+  
   [mindiff minIndex] = min(receivedSymbols - mappingTable);
   symbolIndexAfter = minIndex - 1;
+  
   for i = 1:bitsBySymbol
     bits(i) = mod(symbolIndexAfter,2);
-    symbolIndexAfter = round(symbolIndexAfter/2);
+    symbolIndexAfter = floor(symbolIndexAfter/2);
   endfor
   bits = fliplr(bits);
   
   for i = 1:bitsBySymbol
-    dataOut((k)*bitsBySymbol +i) = bits(i); 
+    dataOut(k*bitsBySymbol +i) = bits(i); 
   endfor
 
 
@@ -277,19 +292,17 @@ while(k < end_k)
 
 endwhile;
 % ---- ---- END Main Loop ---- ---- %
-
+dataIn;
 dataOut;
 
 %-------------- BER -------------
 
 total_error = 0;
 
-for i = 1:n
-  if i != n    
-    if dataIn(i+1) != dataOut(i)
+for i = 1:n-2
+    if dataIn(i) != dataOut(i+2)
       total_error ++;
     endif
-  endif;
 endfor;
 
 % Calculation of BER to return the result
