@@ -1,3 +1,8 @@
+close all;
+clear all;
+clf;
+graphics_toolkit ("gnuplot");
+
  % ---- ---- Simulation Paramters ---- ---- %
 Ts = 1e-3;
 dt = 1e-6;
@@ -14,11 +19,10 @@ fc_rx = fc;
 SNR = 100;   
 
 % first order pll
-alpha = 0.01;
+alpha = 0.005;
 
 % VCO voltage which controlls the frequency. at v=0 it's exactly at f.
 v = 0;
-
 % cosine output
 c = 1;
 % delayed cosine by one timestep
@@ -31,7 +35,7 @@ s_delay = 0;
 % data from the VCO for debugging purposes
 sine = zeros(Ts,1);
 cosine =zeros(Ts,1); 
-vco = zeros(Ts,1); 
+vco = zeros(Ts,1);
 
 for step = 1:dt/dt:Ts/dt
   
@@ -45,29 +49,33 @@ for step = 1:dt/dt:Ts/dt
   % let's save everything in handy vectors for plotting
   sine(step) = s;
   cosine(step) = c;
-  %qvco(step) = v;
+  vco(step) = v
   % end VCO
 
   % save our carriers
   % !!! 90 degree phase shift so the sine becomes the inphase
   %     signal and the cosine the quadrature signal
-  carrier_inph(step) = -s;
-  carrier_quad(step) = c;
+  carrier_inph(step) = c;
+  carrier_quad(step) = s;
 
 endfor
 
 figure(1);
 
-subplot(2,1,1);
-plot(carrier_inph,'LineWidth',2);
-xlabel('Samples');
+subplot(3,1,1);
+plot(cosine);
 ylabel('Amplitude');
-title('inph');
+title('cosine');
 grid on;
 
-subplot(2,1,2);
-plot(carrier_quad,'LineWidth',2);
-xlabel('Samples');
+subplot(3,1,2);
+plot(sine);
 ylabel('Amplitude');
-title('quad');
+title('sine');
+grid on;
+
+subplot(3,1,3);
+plot(vco);
+ylabel('Amplitude');
+title('vco');
 grid on;

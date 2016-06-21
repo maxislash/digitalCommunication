@@ -121,7 +121,7 @@ dataOut = zeros(n,1);
   SNR = 100;
     
     % first order pll
-  alpha = 0.01;
+  alpha = 0.005;
 
   % VCO voltage which controlls the frequency. at v=0 it's exactly at f.
   v = 0;
@@ -133,7 +133,27 @@ dataOut = zeros(n,1);
   % sine output
   s = 0;
   % delayed sine by one timestep
-  s_delay = 0;
+  s_delay = 0; 
+  
+  % Duration in samples
+  ttotal = numberOfSymbols*Ts*fs;
+  % PLL settling time in sample
+  PLLsettingTime = 3000;
+  
+  % lock counter, this counts down as long as the lock signal
+  % is greater than 0.1
+  lockCounter = PLLsettingTime;
+  
+  % PLL loop filter
+  bPLL = fir1(40, 0.001 );
+  % filter state because we just feed one value at a time in it and
+  % then come back to it every timestep so we need to save the state
+  zfPLL = zeros(numel(bPLL)-1,1);
+  
+  % lock detector
+  zfLock = zeros(numel(bPLL)-1,1);
+  
+  lockDetector = zeros(ttotal,1); 
 
   % ---- ---- Pulse shaping ---- ---- %
   pulse_shaping = sin(2*pi*(0:dt:Ts-dt)/(Ts-dt));
@@ -143,14 +163,14 @@ dataOut = zeros(n,1);
 
 
 
-%if PLOT_TX
-%  figure(1);
-%  hold on;
-%endif;
-%if PLOT_RX
-%  figure(2);
-%  hold on;
-%endif;
+if PLOT_TX
+  figure(1);
+  hold on;
+endif;
+if PLOT_RX
+  figure(2);
+  hold on;
+endif;
 
 
 # xi_aux_t = zeros(1,floor(Ts/dt));
@@ -201,8 +221,9 @@ while(k < end_k)
   delay_idx = mod(floor(delay/dt),lt)+1;
   idx = [delay_idx:(delay_idx+lt-1)];
   y_t = awgn(x2_t(idx), SNR);
-  
-for step = 0:dt:Ts-dt
+ 
+%CARRIER FREQUENCY AND PHASE RECOVERY 
+for step = 1:dt/dt:Ts/dt
   
   % this is part of the PLL
   % "voltage" controlled oscillator 
@@ -214,16 +235,48 @@ for step = 0:dt:Ts-dt
   % let's save everything in handy vectors for plotting
   sine(step) = s;
   cosine(step) = c;
-  vco(step) = v;
+  vco(k*Ts*fs + step) = v;
   % end VCO
 
   % save our carriers
   % !!! 90 degree phase shift so the sine becomes the inphase
   %     signal and the cosine the quadrature signal
-  carrier_inph(step) = -s;
-  carrier_quad(step) = c;
+  carrier_inph(step) = c;
+  carrier_quad(step) = s;
+  
+  % this decides if we are in PLL sync or freeze mode
+  % the PLL runs until it has locked to the carrier and
+  % properly settled
+  if ( lockCounter > 0)
+    
+    % PLL in action: we change the frequency via v
+    % phase detector
+    p = y_t(step)*c;
+
+    % filtering out the 2f term
+    [v,zfPLL] = filter(bPLL,1,p,zfPLL);
+
+    % detetc the quadrature which is basically a lock detect
+    q = y_t(step)*s;
+    [ld,zfLock] = filter(bPLL,1,q,zfLock);
+    lockDetector(step) = ld;
+
+    % it needs to stay for 2000 steps in lock
+    if (ld > 0.1)
+      if (lockCounter > 0)
+	      lockCounter = lockCounter - 1;
+      endif
+    else
+      % spurious peak, no real lock, reset to max settling time
+      lockCounter = PLLsettingTime;
+    endif
+  endif
 
 endfor
+
+  %RECOVERY OF YI_T AND YQ_T
+  yi_t = y_t .* carrier_inph;
+  yq_t = y_t .* carrier_quad;
   % TODO The LBP filter is missing
 %   lbp_length = 4;
 %   lbp_filter = [ones(1,lbp_length) zeros(1,lt-lbp_length)];
@@ -251,11 +304,8 @@ endfor
 %  yi_k = yi_filter_t(50)
 %  yq_k = yq_filter_t(50);
 
-%CARRIER FREQUENCY AND PHASE RECOVERY
 
-  
-%  phase_diff = angle(conj(receivedSymbols)*aux) ;    
-%  phase_rx += alpha*phase_diff;
+
   
 %QAM DEMAPPER
   receivedSymbols = yi_k + j*yq_k;
@@ -278,51 +328,51 @@ endfor
 
   
 
-%  % ---- ---- Plot Transmitter Signals ---- ---- %
-%  if (PLOT_TX == 1)
-%    figure(1);
-%    plot([t(1) t(1)+Ts],[0,0],'k-');
-%    stem(t(1), xi_k,'b','linewidth',3);
-%    stem(t(1), xq_k,'r','linewidth',2);
-%
-%    plot([t(1) t(1)+Ts],[-3,-3],'k-');
-%    plot(t,xsi_t-3,'b:','linewidth',2);
-%    plot(t,xsq_t-3,'r-','linewidth',1);
-%
-%    plot([t(1) t(1)+Ts],[-6,-6],'k-');
-%    plot(t,xi_t-6,'b:','linewidth',1);
-%    plot(t,xq_t-6,'r-','linewidth',1);
-%
-%    plot([t(1) t(1)+Ts],[-9,-9],'k-');
-%    plot(t,x_t-9,'g-','linewidth',1);
-%    figure(1);
-%    axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
-%    drawnow ("expose");
-%  endif;
-%  % ---- ---- END Plot Transmitter Signals ---- ---- %
-%
-%
-%  % ---- ---- Plot Receiver Signals ---- ---- %
-%  if (PLOT_RX == 1)
-%    figure(2);
-%    plot(t,y_t-9,'g-','linewidth',1)
-%    plot([t(1) t(1)+Ts],[-9,-9],'k-');
-%    axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
-%    drawnow ("expose");
-%
-%    plot([t(1) t(1)+Ts],[-6,-6],'k-');
-%    plot(t,yi_t-6,'b:','linewidth',1)
-%    plot(t,yq_t-6,'r-','linewidth',1)
-%
-%    plot([t(1) t(1)+Ts],[-3,-3],'k-');
-%    plot(t,yi_filter_t-3,'b:','linewidth',2)
-%    plot(t,yq_filter_t-3,'r-','linewidth',1)
-%
-%    plot([t(1) t(1)+Ts],[0,0],'k-');
-%    stem(t(1), yi_k,'b','linewidth',3);
-%    stem(t(1), yq_k,'r','linewidth',2);
-%  endif;
-%  % ---- ---- END Plot Receiver Signals ---- ---- %
+  % ---- ---- Plot Transmitter Signals ---- ---- %
+  if (PLOT_TX == 1)
+    figure(1);
+    plot([t(1) t(1)+Ts],[0,0],'k-');
+    stem(t(1), xi_k,'b','linewidth',3);
+    stem(t(1), xq_k,'r','linewidth',2);
+
+    plot([t(1) t(1)+Ts],[-3,-3],'k-');
+    plot(t,xsi_t-3,'b:','linewidth',2);
+    plot(t,xsq_t-3,'r-','linewidth',1);
+
+    plot([t(1) t(1)+Ts],[-6,-6],'k-');
+    plot(t,xi_t-6,'b:','linewidth',1);
+    plot(t,xq_t-6,'r-','linewidth',1);
+
+    plot([t(1) t(1)+Ts],[-9,-9],'k-');
+    plot(t,x_t-9,'g-','linewidth',1);
+    figure(1);
+    axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
+    drawnow ("expose");
+  endif;
+  % ---- ---- END Plot Transmitter Signals ---- ---- %
+
+
+  % ---- ---- Plot Receiver Signals ---- ---- %
+  if (PLOT_RX == 1)
+    figure(2);
+    plot(t,y_t-9,'g-','linewidth',1)
+    plot([t(1) t(1)+Ts],[-9,-9],'k-');
+    axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
+    drawnow ("expose");
+
+    plot([t(1) t(1)+Ts],[-6,-6],'k-');
+    plot(t,yi_t-6,'b:','linewidth',1)
+    plot(t,yq_t-6,'r-','linewidth',1)
+
+    plot([t(1) t(1)+Ts],[-3,-3],'k-');
+    plot(t,yi_filter_t-3,'b:','linewidth',2)
+    plot(t,yq_filter_t-3,'r-','linewidth',1)
+
+    plot([t(1) t(1)+Ts],[0,0],'k-');
+    stem(t(1), yi_k,'b','linewidth',3);
+    stem(t(1), yq_k,'r','linewidth',2);
+  endif;
+  % ---- ---- END Plot Receiver Signals ---- ---- %
 
 
   % ---- ---- Update time and plots ---- ---- %
@@ -352,3 +402,6 @@ BER = total_error/n;
 % Showing final results
 disp(['Total wrong bits = ' num2str(total_error)]);
 disp(['BER = ' num2str(BER)]);
+
+figure(3);
+plot(sine);
