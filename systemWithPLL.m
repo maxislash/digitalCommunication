@@ -90,7 +90,7 @@ endif
 
 % ---- ---- Simulation Paramters ---- ---- %
 k=0;
-end_k = numberOfSymbols;
+end_k = numberOfSymbols +1;
 Ts = 1e-3;
 dt = 1e-6;
 end_t = 1e-3;
@@ -117,11 +117,11 @@ dataOut = zeros(n,1);
   phase_rx = 0;
   phase_tx = 0;
   fc_tx = fc;
-  fc_rx = fc;
+  %fc_rx = fc;
   SNR = 100;
     
-  vco_p(1) = phase_rx;
-  vco_f = fc_rx;  
+  vco_p(1) = 0;
+  vco_f = fc;  
   
   maf_l = 500; %Moving average filter - Low Pass filter but with a simpler algorithm without all the multiplications
   fifo = zeros(1,maf_l);
@@ -140,14 +140,14 @@ dataOut = zeros(n,1);
 
 
 
-%if PLOT_TX
-%  figure(1);
-%  hold on;
-%endif;
-%if PLOT_RX
-%  figure(2);
-%  hold on;
-%endif;
+if PLOT_TX
+  figure(1);
+  hold on;
+endif;
+if PLOT_RX
+  figure(2);
+  hold on;
+endif;
 
 
 # xi_aux_t = zeros(1,floor(Ts/dt));
@@ -165,20 +165,26 @@ while(k < end_k)
 #   xi_k = -xi_k;
 #   xq_k = 1;
 
-  symbolBits = dataIn(k*bitsBySymbol+1:k*bitsBySymbol+bitsBySymbol);
-  
-  if M == 4
-    symbolIndex = 2^1 * symbolBits(1) + 2^0 * symbolBits(2);
-  elseif M == 16
-    symbolIndex = 2^3 * symbolBits(1) + 2^2 * symbolBits(2) + 2^1 * symbolBits(3) + 2^0 * symbolBits(4);
-  elseif M == 64
-    symbolIndex = 2^5 * symbolBits(1) + 2^4 * symbolBits(2) + 2^3 * symbolBits(3) + 2^2 * symbolBits(4) +  2^1 * symbolBits(5) + 2^0 * symbolBits(6);
+  if k == 0 %Dummy symbol to lock the PLL
+    xi_k = 1;
+    xq_k = 0;
+    
+  else
+    symbolBits = dataIn((k-1)*bitsBySymbol+1:(k-1)*bitsBySymbol+bitsBySymbol);
+    
+    if M == 4
+      symbolIndex = 2^1 * symbolBits(1) + 2^0 * symbolBits(2);
+    elseif M == 16
+      symbolIndex = 2^3 * symbolBits(1) + 2^2 * symbolBits(2) + 2^1 * symbolBits(3) + 2^0 * symbolBits(4);
+    elseif M == 64
+      symbolIndex = 2^5 * symbolBits(1) + 2^4 * symbolBits(2) + 2^3 * symbolBits(3) + 2^2 * symbolBits(4) +  2^1 * symbolBits(5) + 2^0 * symbolBits(6);
+    endif
+    symbolIndex;
+     % Mapping
+    symbol = mappingTable(symbolIndex + 1);
+    xi_k = real(symbol);
+    xq_k = imag(symbol);
   endif
-  symbolIndex;
-   % Mapping
-  symbol = mappingTable(symbolIndex + 1);
-  xi_k = real(symbol);
-  xq_k = imag(symbol);
 
   xsi_t = pulse_shaping .* xi_k;
   xsq_t = pulse_shaping .* xq_k;
@@ -194,160 +200,176 @@ while(k < end_k)
   % ---- ---- Receiver ---- ---- %;
   
   %CHANNEL
-   y_t = awgn(x_t, SNR);
+  y_t = awgn(x_t, SNR);
   delay_idx = mod(floor(delay/dt),lt)+1;
   idx = [delay_idx:(delay_idx+lt-1)];
   y_t = awgn(x2_t(idx), SNR);
  
   %CARRIER FREQUENCY AND PHASE RECOVERY 
-  if k < end_k %TODO : send the carrier only at the beginning to recover the frequency and the phase
-  for step = 2:dt/dt:Ts/dt + 1
+  if k == 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
     
-    vco_t(step) = -sin(2*pi*vco_f(step-1)*step*dt + vco_p(step-1));
-    aux_t(step) = y_t(step-1) * vco_t(step);
-    maf(step) = maf(step-1) + aux_t(step);
-    maf(step) -= fifo(maf_l);
-  
-    fifo(2:maf_l) = fifo(1:maf_l-1);
-    fifo(1) = aux_t(step);
-  
-    vco_p(step) = vco_p(step-1) + maf(step-1)/maf_l/100;
-  
-    maf_f(step) = maf_f(step-1) + (vco_p(step) - vco_p(step-1))/dt; %Derivate the phase to have the frequency
-    maf_f(step) -= fifo_f(maf_f_l);
-    fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
-    fifo_f(1) = (vco_p(step) - vco_p(step-1))/dt;
-  
-    if (mod(step,10000) == 0)
-      vco_f(step) = vco_f(step-1) + maf_f(step)/pi/2/maf_f_l;
-    else
-      vco_f(step) = vco_f(step-1);
-    endif;
+    delta_t = 1e-5;
+    max_t = 5e-1;
+    t_sync = 0:delta_t:max_t;
+    y_t = cos(2*pi*fc_rx*t_sync + phase_rx);
+
+    for i = 2:length(t_sync)
+      
+      vco_t(i) = -sin(2*pi*vco_f(i-1)*t_sync(i) + vco_p(i-1));
+      aux_t(i) = y_t(i) * vco_t(i);
+      maf(i) = maf(i-1) + aux_t(i);
+      maf(i) -= fifo(maf_l);
     
-    ftest(k*1000 + step -1) = vco_f(step - 1);
-%    carrier_inph(step-1) = cos(2*pi*vco_f(step-1)*step*dt+vco_p(step-1));
-%    carrier_quad(step-1) = sin(2*pi*vco_f(step-1)*step*dt+vco_p(step-1));
+      fifo(2:maf_l) = fifo(1:maf_l-1);
+      fifo(1) = aux_t(i);
+    
+      vco_p(i) = vco_p(i-1) + maf(i-1)/maf_l/100;
+    
+      maf_f(i) = maf_f(i-1) + (vco_p(i) - vco_p(i-1))/delta_t; %Derivate the phase to have the frequency
+      maf_f(i) -= fifo_f(maf_f_l);
+      fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
+      fifo_f(1) = (vco_p(i) - vco_p(i-1))/delta_t;
+    
+      if (mod(i,10000) == 0)
+        vco_f(i) = vco_f(i-1) + maf_f(i)/pi/2/maf_f_l;
+      else
+        vco_f(i) = vco_f(i-1);
+      endif;
+
+  %    carrier_inph(step-1) = cos(2*pi*vco_f(step-1)*step*dt+vco_p(step-1));
+  %    carrier_quad(step-1) = sin(2*pi*vco_f(step-1)*step*dt+vco_p(step-1));    
+    endfor
+    k++;
+    
+    p_step = 100;
+
+    figure(4); hold on;
+    plot(t_sync(1:p_step:end),aux_t(1:p_step:end));
+    plot(t_sync(1:p_step:end),maf(1:p_step:end)/maf_l*2,'r;phase error;');
+    plot(t_sync(1:p_step:end),vco_p(1:p_step:end),'g;vco phase;');
+     %plot(t(1:p_step:end),vco_f(1:p_step:end)-rx_f(1:p_step:end),'c;vco f - rx f;')
+    plot(t_sync(1:p_step:end),maf_f(1:p_step:end)/1000/pi,'k;freq error;')
+    
+    figure(5); hold on;
+    plot(t_sync(1:p_step:end),fc_rx*ones(1,length(t_sync(1:p_step:end))),'b;rx f;');
+    plot(t_sync(1:p_step:end),vco_f(1:p_step:end),'c;vco f;');
+    
+  else
   
-  endfor
-  endif
-  
-    vco_f(end)
    carrier_inph = cos(2*pi*vco_f(end)*t+vco_p(end));
    carrier_quad = sin(2*pi*vco_f(end)*t+vco_p(end));
+    
+    %RECOVERY OF YI_T AND YQ_T
+  %  carrier_inph = cos(2*pi*fc_rx*t + phase_rx);
+  %  carrier_quad = sin(2*pi*fc_rx*t + phase_rx);
   
-  %RECOVERY OF YI_T AND YQ_T
-%  carrier_inph = cos(2*pi*fc_rx*t + phase_rx);
-%  carrier_quad = sin(2*pi*fc_rx*t + phase_rx);
+    yi_t = y_t .* carrier_inph;
+    yq_t = y_t .* carrier_quad;
+    % TODO The LBP filter is missing
+  %   lbp_length = 4;
+  %   lbp_filter = [ones(1,lbp_length) zeros(1,lt-lbp_length)];
+  %   lbp_filter /= sum(lbp_filter);
+  %   yi_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yi_non_lbp_t])(lt+1:2*lt);
+  %   yq_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yq_non_lbp_t])(lt+1:2*lt);
+  %   xi_aux_t = yi_non_lbp_t;
+  %   xq_aux_t = yq_non_lbp_t;
+    
+  % FILTERING BY FFT
+    aux = yi_t + j*yq_t;
+    aux = fft(aux) .* [1 1 zeros(1,lt-2)];
+    aux = ifft(aux);
+    yi_filter_t = 2*real(aux);
+    yq_filter_t = 2*imag(aux);
+    yi_k = yi_filter_t(1);
+    yq_k = yq_filter_t(1);
+    
+  % TODO : FIR filter but for the mean time, FFT is good to implement the carrier recovery
+  %  %figure(3)
+  %  b = fir1(100,0.001);   
+  %  %freqz(b,10e6);
+  %  yi_filter_t = 2*filter(b,1,yi_t);
+  %  yq_filter_t = 2*filter(b,1,yq_t);
+  %  yi_k = yi_filter_t(50)
+  %  yq_k = yq_filter_t(50);
 
-  yi_t = y_t .* carrier_inph;
-  yq_t = y_t .* carrier_quad;
-  % TODO The LBP filter is missing
-%   lbp_length = 4;
-%   lbp_filter = [ones(1,lbp_length) zeros(1,lt-lbp_length)];
-%   lbp_filter /= sum(lbp_filter);
-%   yi_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yi_non_lbp_t])(lt+1:2*lt);
-%   yq_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yq_non_lbp_t])(lt+1:2*lt);
-%   xi_aux_t = yi_non_lbp_t;
-%   xq_aux_t = yq_non_lbp_t;
+  %QAM DEMAPPER
+    receivedSymbols = yi_k + j*yq_k;
+    [mindiff minIndex] = min(receivedSymbols - mappingTable);
+    symbolIndexAfter = minIndex - 1;
+    
+    for i = 1:bitsBySymbol
+      bits(i) = mod(symbolIndexAfter,2);
+      symbolIndexAfter = floor(symbolIndexAfter/2);
+    endfor
+    bits = fliplr(bits);
+    
+    for i = 1:bitsBySymbol
+      dataOut((k-1)*bitsBySymbol +i) = bits(i); 
+    endfor
   
-% FILTERING BY FFT
-  aux = yi_t + j*yq_t;
-  aux = fft(aux) .* [1 1 zeros(1,lt-2)];
-  aux = ifft(aux);
-  yi_filter_t = 2*real(aux);
-  yq_filter_t = 2*imag(aux);
-  yi_k = yi_filter_t(1);
-  yq_k = yq_filter_t(1);
   
-% TODO : FIR filter but for the mean time, FFT is good to implement the carrier recovery
-%  %figure(3)
-%  b = fir1(100,0.001);   
-%  %freqz(b,10e6);
-%  yi_filter_t = 2*filter(b,1,yi_t);
-%  yq_filter_t = 2*filter(b,1,yq_t);
-%  yi_k = yi_filter_t(50)
-%  yq_k = yq_filter_t(50);
-
-
-
+    % ---- ---- END Receiver ---- ---- %
   
-%QAM DEMAPPER
-  receivedSymbols = yi_k + j*yq_k;
-  [mindiff minIndex] = min(receivedSymbols - mappingTable);
-  symbolIndexAfter = minIndex - 1;
   
-  for i = 1:bitsBySymbol
-    bits(i) = mod(symbolIndexAfter,2);
-    symbolIndexAfter = floor(symbolIndexAfter/2);
-  endfor
-  bits = fliplr(bits);
+    
   
-  for i = 1:bitsBySymbol
-    dataOut(k*bitsBySymbol +i) = bits(i); 
-  endfor
-
-
-  % ---- ---- END Receiver ---- ---- %
-
-
+    % ---- ---- Plot Transmitter Signals ---- ---- %
+    if (PLOT_TX == 1)
+      figure(1);
+      plot([t(1) t(1)+Ts],[0,0],'k-');
+      stem(t(1), xi_k,'b','linewidth',3);
+      stem(t(1), xq_k,'r','linewidth',2);
   
-
-%  % ---- ---- Plot Transmitter Signals ---- ---- %
-%  if (PLOT_TX == 1)
-%    figure(1);
-%    plot([t(1) t(1)+Ts],[0,0],'k-');
-%    stem(t(1), xi_k,'b','linewidth',3);
-%    stem(t(1), xq_k,'r','linewidth',2);
-%
-%    plot([t(1) t(1)+Ts],[-3,-3],'k-');
-%    plot(t,xsi_t-3,'b:','linewidth',2);
-%    plot(t,xsq_t-3,'r-','linewidth',1);
-%
-%    plot([t(1) t(1)+Ts],[-6,-6],'k-');
-%    plot(t,xi_t-6,'b:','linewidth',1);
-%    plot(t,xq_t-6,'r-','linewidth',1);
-%
-%    plot([t(1) t(1)+Ts],[-9,-9],'k-');
-%    plot(t,x_t-9,'g-','linewidth',1);
-%    figure(1);
-%    axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
-%    drawnow ("expose");
-%    title('xik(blue)/xqk(red), xsit/q, xit/q, xt');
-%  endif;
-%  % ---- ---- END Plot Transmitter Signals ---- ---- %
-%
-%
-%  % ---- ---- Plot Receiver Signals ---- ---- %
-%  if (PLOT_RX == 1)
-%    figure(2);
-%    plot(t,y_t-9,'g-','linewidth',1)
-%    plot([t(1) t(1)+Ts],[-9,-9],'k-');
-%    axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
-%    drawnow ("expose");
-%
-%    plot([t(1) t(1)+Ts],[-6,-6],'k-');
-%    plot(t,yi_t-6,'b:','linewidth',1)
-%    plot(t,yq_t-6,'r-','linewidth',1)
-%
-%    plot([t(1) t(1)+Ts],[-3,-3],'k-');
-%    plot(t,yi_filter_t-3,'b:','linewidth',2)
-%    plot(t,yq_filter_t-3,'r-','linewidth',1)
-%
-%    plot([t(1) t(1)+Ts],[0,0],'k-');
-%    stem(t(1), yi_k,'b','linewidth',3);
-%    stem(t(1), yq_k,'r','linewidth',2);
-%    
-%    title('yik(blue)/yqk(red), yifiltert/q, yit/q, yt');
-%  endif;
-%  % ---- ---- END Plot Receiver Signals ---- ---- %
-
-
-  % ---- ---- Update time and plots ---- ---- %
-  t = t + Ts;
-  k++;
-  fflush(stdout);
-  % ---- ---- END Update time and plots ---- ---- %
-
+      plot([t(1) t(1)+Ts],[-3,-3],'k-');
+      plot(t,xsi_t-3,'b:','linewidth',2);
+      plot(t,xsq_t-3,'r-','linewidth',1);
+  
+      plot([t(1) t(1)+Ts],[-6,-6],'k-');
+      plot(t,xi_t-6,'b:','linewidth',1);
+      plot(t,xq_t-6,'r-','linewidth',1);
+  
+      plot([t(1) t(1)+Ts],[-9,-9],'k-');
+      plot(t,x_t-9,'g-','linewidth',1);
+      figure(1);
+      axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
+      drawnow ("expose");
+      title('xik(blue)/xqk(red), xsit/q, xit/q, xt');
+    endif;
+    % ---- ---- END Plot Transmitter Signals ---- ---- %
+  
+  
+    % ---- ---- Plot Receiver Signals ---- ---- %
+    if (PLOT_RX == 1)
+      figure(2);
+      plot(t,y_t-9,'g-','linewidth',1)
+      plot([t(1) t(1)+Ts],[-9,-9],'k-');
+      axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
+      drawnow ("expose");
+  
+      plot([t(1) t(1)+Ts],[-6,-6],'k-');
+      plot(t,yi_t-6,'b:','linewidth',1)
+      plot(t,yq_t-6,'r-','linewidth',1)
+  
+      plot([t(1) t(1)+Ts],[-3,-3],'k-');
+      plot(t,yi_filter_t-3,'b:','linewidth',2)
+      plot(t,yq_filter_t-3,'r-','linewidth',1)
+  
+      plot([t(1) t(1)+Ts],[0,0],'k-');
+      stem(t(1), yi_k,'b','linewidth',3);
+      stem(t(1), yq_k,'r','linewidth',2);
+      
+      title('yik(blue)/yqk(red), yifiltert/q, yit/q, yt');
+    endif;
+    % ---- ---- END Plot Receiver Signals ---- ---- %
+    
+    % ---- ---- Update time and plots ---- ---- %
+    t = t + Ts;
+    k++;
+    fflush(stdout);
+    % ---- ---- END Update time and plots ---- ---- %
+  endif
+  vco_p(end)
+  k
 endwhile;
 % ---- ---- END Main Loop ---- ---- %
 dataIn;
@@ -369,7 +391,6 @@ BER = total_error/n;
 % Showing final results
 disp(['Total wrong bits = ' num2str(total_error)]);
 disp(['BER = ' num2str(BER)]);
-
-figure(3);
-p_step = 100;
-plot(vco_f,'c;vco f;');
+%
+%figure(3);
+%plot(vco_f,'c;vco f;');
