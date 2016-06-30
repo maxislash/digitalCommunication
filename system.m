@@ -182,10 +182,14 @@ while(k < end_k)
 
 
   % ---- ---- Receiver ---- ---- %;
-#   y_t = awgn(x_t, SNR);
-  delay_idx = mod(floor(delay/dt),lt)+1;
-  idx = [delay_idx:(delay_idx+lt-1)];
-  y_t = awgn(x2_t(idx), SNR);
+  
+  %CHANNEL
+  y_t = awgn(x_t, SNR);
+%  delay_idx = mod(floor(delay/dt),lt)+1;
+%  idx = [delay_idx:(delay_idx+lt-1)];
+%  y_t = awgn(x2_t(idx), SNR);
+  
+  %RECOVERY OF YI_T AND YQ_T
   yi_t = y_t .* cos(2*pi*fc_rx*t+phase_rx);
   yq_t = y_t .* sin(2*pi*fc_rx*t+phase_rx);
 
@@ -197,8 +201,8 @@ while(k < end_k)
 %   yq_t = filter(lbp_filter, [1 zeros(1,19)], [xi_aux_t yq_non_lbp_t])(lt+1:2*lt);
 %   xi_aux_t = yi_non_lbp_t;
 %   xq_aux_t = yq_non_lbp_t;
- 
   
+% FILTERING BY FFT
   aux = yi_t + j*yq_t;
   aux = fft(aux) .* [1 1 zeros(1,lt-2)];
   aux = ifft(aux);
@@ -207,17 +211,23 @@ while(k < end_k)
   yi_k = yi_filter_t(1);
   yq_k = yq_filter_t(1);
   
+% TODO : FIR filter but for the mean time, FFT is good to implement the carrier recovery
+%  %figure(3)
 %  b = fir1(100,0.001);   
+%  %freqz(b,10e6);
 %  yi_filter_t = 2*filter(b,1,yi_t);
 %  yq_filter_t = 2*filter(b,1,yq_t);
-%  yi_k = yi_filter_t(1)
-%  yq_k = yq_filter_t(1);
-  
-  receivedSymbols = yi_k + j*yq_k;
+%  yi_k = yi_filter_t(50)
+%  yq_k = yq_filter_t(50);
+
+%CARRIER FREQUENCY AND PHASE RECOVERY
+
   
 %  phase_diff = angle(conj(receivedSymbols)*aux) ;    
 %  phase_rx += alpha*phase_diff;
   
+%QAM DEMAPPER
+  receivedSymbols = yi_k + j*yq_k;
   [mindiff minIndex] = min(receivedSymbols - mappingTable);
   symbolIndexAfter = minIndex - 1;
   
@@ -281,7 +291,7 @@ while(k < end_k)
     stem(t(1), yi_k,'b','linewidth',3);
     stem(t(1), yq_k,'r','linewidth',2);
   endif;
-  % ---- ---- END Plot Receiver Signals ---- ---- %
+%  % ---- ---- END Plot Receiver Signals ---- ---- %
 
 
   % ---- ---- Update time and plots ---- ---- %
