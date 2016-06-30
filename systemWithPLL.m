@@ -90,9 +90,10 @@ endif
 
 % ---- ---- Simulation Paramters ---- ---- %
 last_phase = 0;
-sync_flag = -60;
+sync_flag = -50;
 freeze = 1;
 i = 2;
+j = 2;
 k=1;
 end_k = numberOfSymbols +1;
 Ts = 1e-3;
@@ -119,16 +120,22 @@ dataOut = zeros(n,1);
   SNR = 0;
   % ---- ---- Good Paramters ---- ---- %
   delay = 0.0;
- % phase_rx = 0;
+  phase_rx = 0;
   %phase_tx = 0;
   fc_tx = fc;
  % fc_rx = fc;
   SNR = 100;
 
-
   maf_f_l = 100;
   fifo_f = zeros(1,maf_f_l);
   maf_f(1) = 0;
+  
+  maf_l = 500; %Moving average filter - Low Pass filter but with a simpler algorithm without all the multiplications
+  fifo = zeros(1,maf_l);
+  maf(1) = 0;
+
+  sync = 1;
+
 
   % ---- ---- Pulse shaping ---- ---- %
   pulse_shaping = sin(2*pi*(0:dt:Ts-dt)/(Ts-dt));
@@ -205,26 +212,47 @@ while(k < end_k)
   %CARRIER FREQUENCY AND PHASE RECOVERY
 #   if k == 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
 
-    k;
+    if sync == 1
+      if i > 2
+        maf(j) = maf(j-1) + phase_error;
+        maf(j) -= fifo(maf_l);
+  
+        fifo(2:maf_l) = fifo(1:maf_l-1);
+        fifo(1) = phase_error;
+  
+        phase_rx = last_phase + maf(j-1)/maf_l/100;
+        j++;
+      endif
+    endif
+    
     aux_vco_t = -sin(2*pi*fc_rx*t + phase_rx - pi/4);
-    aux_phase_error_t = y_t .* aux_vco_t;
+    aux_phase_error_t = (y_t ./ pulse_shaping) .* aux_vco_t;
     phase_error = mean(aux_phase_error_t);
 
     fc_error = (phase_rx - last_phase);
     last_phase = phase_rx;
+    
+
     
     maf_f(i) = maf_f(i-1) + fc_error/Ts; %Derivate the phase to have the frequency
     maf_f(i) -= fifo_f(maf_f_l);
     fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
     fifo_f(1) = fc_error/Ts;
 
-    if sync_flag  <= 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
+    if sync_flag  <= 0  %TODO : send the carrier only at the beginning to recover the freqdatauency and the phase
       freeze = 1;
-      phase_rx = phase_rx + phase_error;
+      if i == 2
+        phase_rx = sign(phase_rx+phase_error) * mod(abs(phase_rx + phase_error),2*pi);
+      else
+        %phase_rx = last_phase + maf(j-2)/maf_l/100;
+      endif
       fc_rx = fc_rx + maf_f(i)/pi/2/maf_f_l;
   %     fc_rx = fc_rx + fc_error * 10   
-      if phase_error < 0.001
-        sync_flag ++;     
+      sync_flag++;
+      if abs(phase_error) < 0.001
+        if i >2
+        sync_flag = 1;
+        endif     
       endif;
       
     endif;
@@ -232,12 +260,12 @@ while(k < end_k)
     i++;
     fc_rx;
     phase_rx;
-%    figure(10); hold on;
-%   % plot(t,aux_phase_error_t);
-%    plot([t(1) t(1)+Ts],phase_error*[1 1],'k');
-%    plot([t(1) t(1)+Ts],phase_rx*[1 1],'g');
-%    plot([t(1) t(1)+Ts],fc_error*[1 1],'r');
-%#     plot(t,fc_rx*ones(1,length(t)),'c');
+    figure(10); hold on;
+    plot(t,aux_phase_error_t);
+    plot([t(1) t(1)+Ts],phase_error*[1 1],'k');
+    plot([t(1) t(1)+Ts],phase_rx*[1 1],'g');
+    plot([t(1) t(1)+Ts],fc_error*[1 1],'r');
+#     plot(t,fc_rx*ones(1,length(t)),'c');
 
 
 
@@ -336,11 +364,13 @@ while(k < end_k)
    
     if sync_flag == 1
       if symbolIndexAfter == 0 
-        'Phase test'
-        if phase_error >= 0.001
+        if abs(phase_error) >= 0.001
           'Correction of the phase'
-          phase_rx = mod(phase_rx + phase_error,2*pi);    
+          sync = 1;
+          %phase_rx = sign(phase_rx+phase_error) * mod(abs(phase_rx + phase_error),2*pi)    
         endif
+      else
+        sync = 0;
       endif 
 
       for i = 1:bitsBySymbol
@@ -352,10 +382,10 @@ while(k < end_k)
       for i = 1:bitsBySymbol
         dataOut((k-1)*bitsBySymbol +i) = bits(i);
       endfor
-    
+
     endif;
   
-
+    
 
     % ---- ---- END Receiver ---- ---- %
 
@@ -409,7 +439,7 @@ while(k < end_k)
 %
 %      title('yik(blue)/yqk(red), yifiltert/q, yit/q, yt');
 %    endif;
-    % ---- ---- END Plot Receiver Signals ---- ---- %
+%    % ---- ---- END Plot Receiver Signals ---- ---- %
 
     % ---- ---- Update time and plots ---- ---- %
     t = t + Ts;
