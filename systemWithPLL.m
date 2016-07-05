@@ -93,7 +93,6 @@ last_phase = 0;
 sync_flag = -50;
 freeze = 1;
 i = 2;
-j = 2;
 k=1;
 end_k = numberOfSymbols +1;
 Ts = 1e-3;
@@ -120,22 +119,17 @@ dataOut = zeros(n,1);
   SNR = 0;
   % ---- ---- Good Paramters ---- ---- %
   delay = 0.0;
-  phase_rx = 0;
+  %phase_rx = 0;
   %phase_tx = 0;
   fc_tx = fc;
- % fc_rx = fc;
+  %fc_rx = fc;
   SNR = 100;
+
+
 
   maf_f_l = 100;
   fifo_f = zeros(1,maf_f_l);
   maf_f(1) = 0;
-  
-  maf_l = 500; %Moving average filter - Low Pass filter but with a simpler algorithm without all the multiplications
-  fifo = zeros(1,maf_l);
-  maf(1) = 0;
-
-  sync = 1;
-
 
   % ---- ---- Pulse shaping ---- ---- %
   pulse_shaping = sin(2*pi*(0:dt:Ts-dt)/(Ts-dt));
@@ -155,8 +149,8 @@ dataOut = zeros(n,1);
 %endif;
 
 
-# xi_aux_t = zeros(1,floor(Ts/dt));
-# xq_aux_t = zeros(1,floor(Ts/dt));
+% xi_aux_t = zeros(1,floor(Ts/dt));
+% xq_aux_t = zeros(1,floor(Ts/dt));
 xi_aux_t = zeros(1,lt);
 xq_aux_t = zeros(1,lt);
 
@@ -165,10 +159,7 @@ x2_t = zeros(1,2*lt);
 % ---- ---- Main Loop ---- ---- %
 while(k < end_k)
 
-
   % ---- ---- Transmitter ---- ---- %
-#   xi_k = -xi_k;
-#   xq_k = 1;
 
   if sync_flag <= 0 %Dummy symbol to lock the PLL
     xi_k = 1;
@@ -210,21 +201,7 @@ while(k < end_k)
   y_t = awgn(x2_t(idx), SNR);
 
   %CARRIER FREQUENCY AND PHASE RECOVERY
-#   if k == 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
 
-    if sync == 1
-      if i > 2
-        maf(j) = maf(j-1) + phase_error;
-        maf(j) -= fifo(maf_l);
-  
-        fifo(2:maf_l) = fifo(1:maf_l-1);
-        fifo(1) = phase_error;
-  
-        phase_rx = last_phase + maf(j-1)/maf_l/100;
-        j++;
-      endif
-    endif
-    
     aux_vco_t = -sin(2*pi*fc_rx*t + phase_rx - pi/4);
     aux_phase_error_t = (y_t ./ pulse_shaping) .* aux_vco_t;
     phase_error = mean(aux_phase_error_t);
@@ -232,30 +209,24 @@ while(k < end_k)
     fc_error = (phase_rx - last_phase);
     last_phase = phase_rx;
     
-
-    
     maf_f(i) = maf_f(i-1) + fc_error/Ts; %Derivate the phase to have the frequency
     maf_f(i) -= fifo_f(maf_f_l);
     fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
     fifo_f(1) = fc_error/Ts;
 
-    if sync_flag  <= 0  %TODO : send the carrier only at the beginning to recover the freqdatauency and the phase
-      freeze = 1;
-      if i == 2
-        phase_rx = sign(phase_rx+phase_error) * mod(abs(phase_rx + phase_error),2*pi);
-      else
-        %phase_rx = last_phase + maf(j-2)/maf_l/100;
-      endif
+    if sync_flag  <= 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
+      freeze = 1;     
+      phase_rx = sign(phase_rx + phase_error) * mod(abs(phase_rx + phase_error),2*pi);
       fc_rx = fc_rx + maf_f(i)/pi/2/maf_f_l;
   %     fc_rx = fc_rx + fc_error * 10   
-      sync_flag++;
+      sync_flag ++;
       if abs(phase_error) < 0.001
-        if i >2
-        sync_flag = 1;
-        endif     
-      endif;
-      
-    endif;
+        if i > 2
+          sync_flag
+          sync_flag = 1;
+        end
+      end
+    end
 
     i++;
     fc_rx;
@@ -265,64 +236,7 @@ while(k < end_k)
     plot([t(1) t(1)+Ts],phase_error*[1 1],'k');
     plot([t(1) t(1)+Ts],phase_rx*[1 1],'g');
     plot([t(1) t(1)+Ts],fc_error*[1 1],'r');
-#     plot(t,fc_rx*ones(1,length(t)),'c');
-
-
-
-
-#
-#
-#
-#     delta_t = 1e-5;
-#     max_t = 5e-1;
-#     t_sync = 0:delta_t:max_t;
-#     y_t = cos(2*pi*fc_rx*t_sync + phase_rx);
-#
-#     for i = 2:length(t_sync)
-#
-#       vco_t(i) = -sin(2*pi*vco_f(i-1)*t_sync(i) + vco_p(i-1));
-#       aux_t(i) = y_t(i) * vco_t(i);
-#       maf(i) = maf(i-1) + aux_t(i);
-#       maf(i) -= fifo(maf_l);
-#
-#       fifo(2:maf_l) = fifo(1:maf_l-1);
-#       fifo(1) = aux_t(i);
-#
-#       vco_p(i) = vco_p(i-1) + maf(i-1)/maf_l/100;
-#
-#       maf_f(i) = maf_f(i-1) + (vco_p(i) - vco_p(i-1))/delta_t; %Derivate the phase to have the frequency
-#       maf_f(i) -= fifo_f(maf_f_l);
-#       fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
-#       fifo_f(1) = (vco_p(i) - vco_p(i-1))/delta_t;
-#
-#       if (mod(i,10000) == 0)
-#         vco_f(i) = vco_f(i-1) + maf_f(i)/pi/2/maf_f_l;
-#       else
-#         vco_f(i) = vco_f(i-1);
-#       endif;
-#
-#   %    carrier_inph(step-1) = cos(2*pi*vco_f(step-1)*step*dt+vco_p(step-1));
-#   %    carrier_quad(step-1) = sin(2*pi*vco_f(step-1)*step*dt+vco_p(step-1));
-#     endfor
-#     k++;
-#
-#     p_step = 100;
-#
-#     figure(4); hold on;
-#     plot(t_sync(1:p_step:end),aux_t(1:p_step:end));
-#     plot(t_sync(1:p_step:end),maf(1:p_step:end)/maf_l*2,'r;phase error;');
-#     plot(t_sync(1:p_step:end),vco_p(1:p_step:end),'g;vco phase;');
-#      %plot(t(1:p_step:end),vco_f(1:p_step:end)-rx_f(1:p_step:end),'c;vco f - rx f;')
-#     plot(t_sync(1:p_step:end),maf_f(1:p_step:end)/1000/pi,'k;freq error;')
-#
-#     figure(5); hold on;
-#     plot(t_sync(1:p_step:end),fc_rx*ones(1,length(t_sync(1:p_step:end))),'b;rx f;');
-#     plot(t_sync(1:p_step:end),vco_f(1:p_step:end),'c;vco f;');
-
-#   else
-
-#    carrier_inph = cos(2*pi*vco_f(end)*t+vco_p(end));
-#    carrier_quad = sin(2*pi*vco_f(end)*t+vco_p(end));
+%     plot(t,fc_rx*ones(1,length(t)),'c');
 
     %RECOVERY OF YI_T AND YQ_T
     carrier_inph = cos(2*pi*fc_rx*t + phase_rx);
@@ -366,26 +280,23 @@ while(k < end_k)
       if symbolIndexAfter == 0 
         if abs(phase_error) >= 0.001
           'Correction of the phase'
-          sync = 1;
-          %phase_rx = sign(phase_rx+phase_error) * mod(abs(phase_rx + phase_error),2*pi)    
-        endif
-      else
-        sync = 0;
-      endif 
+           phase_rx = sign(phase_rx + phase_error) * mod(abs(phase_rx + phase_error),2*pi);    
+        end
+      end 
 
       for i = 1:bitsBySymbol
         bits(i) = mod(symbolIndexAfter,2);
         symbolIndexAfter = floor(symbolIndexAfter/2);
-      endfor
+      end
       bits = fliplr(bits);
 
       for i = 1:bitsBySymbol
         dataOut((k-1)*bitsBySymbol +i) = bits(i);
-      endfor
-
-    endif;
-  
+      end
     
+    end
+  
+
 
     % ---- ---- END Receiver ---- ---- %
 
@@ -439,7 +350,7 @@ while(k < end_k)
 %
 %      title('yik(blue)/yqk(red), yifiltert/q, yit/q, yt');
 %    endif;
-%    % ---- ---- END Plot Receiver Signals ---- ---- %
+    % ---- ---- END Plot Receiver Signals ---- ---- %
 
     % ---- ---- Update time and plots ---- ---- %
     t = t + Ts;
@@ -447,12 +358,9 @@ while(k < end_k)
       k++;
     elseif sync_flag == 1
       freeze = 0; 
-    endif;
+    end
     fflush(stdout);
     % ---- ---- END Update time and plots ---- ---- %
-#   endif
-#   vco_p(end)
-#   k
 endwhile;
 % ---- ---- END Main Loop ---- ---- %
 dataInTest = dataIn(1:end-2);
@@ -465,8 +373,8 @@ total_error = 0;
 for i = 1:n-2
     if dataIn(i) != dataOut(i+2)
       total_error ++;
-    endif
-endfor;
+    end
+end
 
 % Calculation of BER to return the result
 BER = total_error/n;
