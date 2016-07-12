@@ -92,6 +92,7 @@ endif
 last_phase = 0;
 sync_flag = -50;
 freeze = 1;
+state = 1;
 i = 2;
 k=1;
 end_k = numberOfSymbols +1;
@@ -101,8 +102,8 @@ end_t = 1e-3;
 t = 0:dt:Ts-dt;
 lt = length(t);
 window_size = 5;
-PLOT_TX = 1 ;
-PLOT_RX = 1;
+PLOT_TX = 0;
+PLOT_RX = 0;
 
 % ---- ---- Transceiver Paramters ---- ---- %
 fc = 1e3;
@@ -115,17 +116,21 @@ dataOut = zeros(n,1);
   phase_rx = 2*pi*0.13;
   phase_tx = 0.451;
   fc_tx = fc;
-  fc_rx = fc*1.01;
+  fc_rx = fc*1.001;
   SNR = 0;
   % ---- ---- Good Paramters ---- ---- %
   delay = 0.0;
-  %phase_rx = 0;
-  %phase_tx = 0;
+  phase_rx = 0;
+  phase_tx = 0;
   fc_tx = fc;
-  %fc_rx = fc;
+  fc_rx = fc;
   SNR = 100;
 
-
+  var_t = 0;
+  ks = lt / 4;
+  span = 5;
+  shift = floor(lt / 8) + 1; 
+  timing_shift = 0;
 
   maf_f_l = 100;
   fifo_f = zeros(1,maf_f_l);
@@ -139,14 +144,14 @@ dataOut = zeros(n,1);
 
 
 
-%if PLOT_TX
-%  figure(1);
-%  hold on;
-%endif;
-%if PLOT_RX
-%  figure(2);
-%  hold on;
-%endif;
+if PLOT_TX
+ figure(1);
+ hold on;
+endif;
+if PLOT_RX
+ figure(2);
+ hold on;
+endif;
 
 
 % xi_aux_t = zeros(1,floor(Ts/dt));
@@ -161,9 +166,14 @@ while(k < end_k)
 
   % ---- ---- Transmitter ---- ---- %
 
-  if sync_flag <= 0 %Dummy symbol to lock the PLL
+  if state == 1 %Dummy symbol to lock the PLL
     xi_k = 1;
     xq_k = 1;
+
+  elseif state == 2 %Dummy symbol to recover the symbol timing
+    xi_k = 1;
+    xq_k = 1;
+
   else
     symbolBits = dataIn((k-1)*bitsBySymbol+1:(k-1)*bitsBySymbol+bitsBySymbol);
 
@@ -173,13 +183,13 @@ while(k < end_k)
       symbolIndex = 2^3 * symbolBits(1) + 2^2 * symbolBits(2) + 2^1 * symbolBits(3) + 2^0 * symbolBits(4);
     elseif M == 64
       symbolIndex = 2^5 * symbolBits(1) + 2^4 * symbolBits(2) + 2^3 * symbolBits(3) + 2^2 * symbolBits(4) +  2^1 * symbolBits(5) + 2^0 * symbolBits(6);
-    endif
+    end
     symbolIndex;
      % Mapping
     symbol = mappingTable(symbolIndex + 1);
     xi_k = real(symbol);
     xq_k = imag(symbol);
-  endif
+  end
 
   xsi_t = pulse_shaping .* xi_k;
   xsq_t = pulse_shaping .* xq_k;
@@ -200,30 +210,82 @@ while(k < end_k)
   idx = [delay_idx:(delay_idx+lt-1)];
   y_t = awgn(x2_t(idx), SNR);
 
+  %SYMBOL TIMING RECOVERY
+
+  if state == 2
+
+    before = 0;
+    after = 0;
+
+    ks
+
+    figure(11)
+    plot(y_t)
+
+    for l = 1:(lt/4) + 1
+      before += y_t(mod(ks - l - shift,100) + 1);
+      after += y_t(ks + l - shift);
+    end
+
+    timing_error = abs(before) - abs(after)
+
+    if abs(timing_error) > 10
+      timing_shift = round(abs(timing_error)*0,1);
+    else
+      timing_shift = round(abs(timing_error));
+    end
+      
+    timing_shift
+    
+    if timing_error > 1
+      ks = ks - timing_shift;
+
+    elseif timing_error < -1
+      ks = ks + timing_shift;
+
+    else 
+      var_t++;
+    end
+
+    if var_t == 10
+      state = 3;
+    end
+
+    if ks < 14
+      ks = 14;
+    end
+      
+    ks
+  end
+
   %CARRIER FREQUENCY AND PHASE RECOVERY
 
     aux_vco_t = -sin(2*pi*fc_rx*t + phase_rx - pi/4);
     aux_phase_error_t = (y_t ./ pulse_shaping) .* aux_vco_t;
     phase_error = mean(aux_phase_error_t);
 
-    fc_error = (phase_rx - last_phase);
-    last_phase = phase_rx;
-    
-    maf_f(i) = maf_f(i-1) + fc_error/Ts; %Derivate the phase to have the frequency
-    maf_f(i) -= fifo_f(maf_f_l);
-    fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
-    fifo_f(1) = fc_error/Ts;
+    if state == 1
 
-    if sync_flag  <= 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
-      freeze = 1;     
-      phase_rx = sign(phase_rx + phase_error) * mod(abs(phase_rx + phase_error),2*pi);
-      fc_rx = fc_rx + maf_f(i)/pi/2/maf_f_l;
-  %     fc_rx = fc_rx + fc_error * 10   
-      sync_flag ++;
-      if abs(phase_error) < 0.001
-        if i > 2
-          sync_flag
-          sync_flag = 1;
+      if sync_flag  <= 0  %TODO : send the carrier only at the beginning to recover the frequency and the phase
+        freeze = 1;     
+
+        fc_error = (phase_rx - last_phase);
+        last_phase = phase_rx;
+        
+        % maf_f(i) = maf_f(i-1) + fc_error/Ts; %Derivate the phase to have the frequency
+        % maf_f(i) -= fifo_f(maf_f_l);
+        % fifo_f(2:maf_f_l) = fifo_f(1:maf_f_l-1);
+        % fifo_f(1) = fc_error/Ts;
+        phase_rx = sign(phase_rx + phase_error) * mod(abs(phase_rx + phase_error),2*pi);
+    %    fc_rx = fc_rx + maf_f(i)/pi/2/maf_f_l;
+    %     fc_rx = fc_rx + fc_error * 10   
+        sync_flag ++;
+        if abs(phase_error) < 0.001
+          if i > 2
+            sync_flag
+            sync_flag = 1;
+            state = 2;
+          end
         end
       end
     end
@@ -259,8 +321,10 @@ while(k < end_k)
     aux = ifft(aux);
     yi_filter_t = 2*real(aux);
     yq_filter_t = 2*imag(aux);
-    yi_k = yi_filter_t(1);
-    yq_k = yq_filter_t(1);
+
+
+    yi_k = yi_filter_t(ks - shift);
+    yq_k = yq_filter_t(ks - shift);
 
   % TODO : FIR filter but for the mean time, FFT is good to implement the carrier recovery
   %  %figure(3)
@@ -276,7 +340,8 @@ while(k < end_k)
     [mindiff minIndex] = min(receivedSymbols - mappingTable);
     symbolIndexAfter = minIndex - 1;
    
-    if sync_flag == 1
+    if state == 3
+
       if symbolIndexAfter == 0 
         if abs(phase_error) >= 0.001
           'Correction of the phase'
@@ -295,68 +360,67 @@ while(k < end_k)
       end
     
     end
-  
-
 
     % ---- ---- END Receiver ---- ---- %
 
 
 
+  if state > 1
+   % ---- ---- Plot Transmitter Signals ---- ---- %
+   if (PLOT_TX == 1)
+     figure(1);
+     plot([t(1) t(1)+Ts],[0,0],'k-');
+     stem(t(1), xi_k,'b','linewidth',3);
+     stem(t(1), xq_k,'r','linewidth',2);
 
-%    % ---- ---- Plot Transmitter Signals ---- ---- %
-%    if (PLOT_TX == 1)
-%      figure(1);
-%      plot([t(1) t(1)+Ts],[0,0],'k-');
-%      stem(t(1), xi_k,'b','linewidth',3);
-%      stem(t(1), xq_k,'r','linewidth',2);
-%
-%      plot([t(1) t(1)+Ts],[-3,-3],'k-');
-%      plot(t,xsi_t-3,'b:','linewidth',2);
-%      plot(t,xsq_t-3,'r-','linewidth',1);
-%
-%      plot([t(1) t(1)+Ts],[-6,-6],'k-');
-%      plot(t,xi_t-6,'b:','linewidth',1);
-%      plot(t,xq_t-6,'r-','linewidth',1);
-%
-%      plot([t(1) t(1)+Ts],[-9,-9],'k-');
-%      plot(t,x_t-9,'g-','linewidth',1);
-%      figure(1);
-%      axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
-%      drawnow ("expose");
-%      title('xik(blue)/xqk(red), xsit/q, xit/q, xt');
-%    endif;
-%    % ---- ---- END Plot Transmitter Signals ---- ---- %
-%
-%
-%    % ---- ---- Plot Receiver Signals ---- ---- %
-%    if (PLOT_RX == 1)
-%      figure(2);
-%      plot(t,y_t-9,'g-','linewidth',1)
-%      plot([t(1) t(1)+Ts],[-9,-9],'k-');
-%      axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
-%      drawnow ("expose");
-%
-%      plot([t(1) t(1)+Ts],[-6,-6],'k-');
-%      plot(t,yi_t-6,'b:','linewidth',1)
-%      plot(t,yq_t-6,'r-','linewidth',1)
-%
-%      plot([t(1) t(1)+Ts],[-3,-3],'k-');
-%      plot(t,yi_filter_t-3,'b:','linewidth',2)
-%      plot(t,yq_filter_t-3,'r-','linewidth',1)
-%
-%      plot([t(1) t(1)+Ts],[0,0],'k-');
-%      stem(t(1), yi_k,'b','linewidth',3);
-%      stem(t(1), yq_k,'r','linewidth',2);
-%
-%      title('yik(blue)/yqk(red), yifiltert/q, yit/q, yt');
-%    endif;
+     plot([t(1) t(1)+Ts],[-3,-3],'k-');
+     plot(t,xsi_t-3,'b:','linewidth',2);
+     plot(t,xsq_t-3,'r-','linewidth',1);
+
+     plot([t(1) t(1)+Ts],[-6,-6],'k-');
+     plot(t,xi_t-6,'b:','linewidth',1);
+     plot(t,xq_t-6,'r-','linewidth',1);
+
+     plot([t(1) t(1)+Ts],[-9,-9],'k-');
+     plot(t,x_t-9,'g-','linewidth',1);
+     figure(1);
+     axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
+     drawnow ("expose");
+     title('xik(blue)/xqk(red), xsit/q, xit/q, xt');
+   endif;
+   % ---- ---- END Plot Transmitter Signals ---- ---- %
+
+
+   % ---- ---- Plot Receiver Signals ---- ---- %
+   if (PLOT_RX == 1)
+     figure(2);
+     plot(t,y_t-9,'g-','linewidth',1)
+     plot([t(1) t(1)+Ts],[-9,-9],'k-');
+     axis([t(1)-window_size*Ts t(1)+Ts -11 2]); %TODO: implement a plotting buffer with a windown from 5 to 10 Ts
+     drawnow ("expose");
+
+     plot([t(1) t(1)+Ts],[-6,-6],'k-');
+     plot(t,yi_t-6,'b:','linewidth',1)
+     plot(t,yq_t-6,'r-','linewidth',1)
+
+     plot([t(1) t(1)+Ts],[-3,-3],'k-');
+     plot(t,yi_filter_t-3,'b:','linewidth',2)
+     plot(t,yq_filter_t-3,'r-','linewidth',1)
+
+     plot([t(1) t(1)+Ts],[0,0],'k-');
+     stem(t(1), yi_k,'b','linewidth',3);
+     stem(t(1), yq_k,'r','linewidth',2);
+
+     title('yik(blue)/yqk(red), yifiltert/q, yit/q, yt');
+   end
     % ---- ---- END Plot Receiver Signals ---- ---- %
+  end
 
     % ---- ---- Update time and plots ---- ---- %
     t = t + Ts;
     if freeze == 0
       k++;
-    elseif sync_flag == 1
+    elseif state == 3
       freeze = 0; 
     end
     fflush(stdout);
