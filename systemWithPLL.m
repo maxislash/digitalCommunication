@@ -111,7 +111,7 @@ fs = 1/dt;
 dataIn = randi(2,n,1) - 1; % Generate vector of binary data
 dataOut = zeros(n,1);
   % ---- ---- Bad Paramters ---- ---- %
-  delay = 0.005e-3;
+  delay = 0.005e-2;
   phase_tx = 0;
   phase_rx = 2*pi*0.13;
   phase_tx = 0.451;
@@ -119,9 +119,9 @@ dataOut = zeros(n,1);
   fc_rx = fc*1.001;
   SNR = 0;
   % ---- ---- Good Paramters ---- ---- %
-  delay = 0.0;
-  phase_rx = 0;
-  phase_tx = 0;
+  % delay = 0.0;
+  %phase_rx = 0;
+  %phase_tx = 0;
   fc_tx = fc;
   fc_rx = fc;
   SNR = 100;
@@ -217,45 +217,30 @@ while(k < end_k)
     before = 0;
     after = 0;
 
-    ks
-
-    figure(11)
-    plot(y_t)
-
     for l = 1:(lt/4) + 1
-      before += y_t(mod(ks - l - shift,100) + 1);
-      after += y_t(ks + l - shift);
+      before += y_t(mod(ks - l - shift,100) + 1); %Sum of the samples before the sample used for demodulation
+      after += y_t(ks + l - shift); %Sum of the samples after the sample used for demodulation
     end
 
-    timing_error = abs(before) - abs(after)
-
-    if abs(timing_error) > 10
-      timing_shift = round(abs(timing_error)*0,1);
-    else
-      timing_shift = round(abs(timing_error));
-    end
-      
-    timing_shift
+    timing_error = abs(before) - abs(after) %Difference of the sum to see the timing error. It should be near zero if the sample used for demodulation is the highest point of the sine
     
     if timing_error > 1
-      ks = ks - timing_shift;
+      ks = ks - 1; %Shift of one sample before if the before sum is higher than the after sum
 
     elseif timing_error < -1
-      ks = ks + timing_shift;
+      ks = ks + 1; %Shift of one sample after
 
-    else 
-      var_t++;
+    else
+      var_t++; %If timing error is near zero, var_t is incremented     
     end
 
-    if var_t == 10
+    if var_t == 5 %If there is 5 symbols with a timing error near zero, the real symbols can be send
       state = 3;
     end
 
-    if ks < 14
-      ks = 14;
+    if ks < shift + 1 %To make sure than the sample's place exists
+      ks = shift + 1;
     end
-      
-    ks
   end
 
   %CARRIER FREQUENCY AND PHASE RECOVERY
